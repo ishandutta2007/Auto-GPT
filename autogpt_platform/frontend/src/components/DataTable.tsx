@@ -1,3 +1,4 @@
+import React from "react";
 import { beautifyString } from "@/lib/utils";
 import { Button } from "./ui/button";
 import {
@@ -10,6 +11,7 @@ import {
 } from "./ui/table";
 import { Clipboard } from "lucide-react";
 import { useToast } from "./ui/use-toast";
+import { ContentRenderer } from "./ui/render";
 
 type DataTableProps = {
   title?: string;
@@ -51,7 +53,7 @@ export default function DataTable({
                 {beautifyString(key)}
               </TableCell>
               <TableCell className="cursor-text">
-                <div className="flex min-h-9 items-center">
+                <div className="flex min-h-9 items-center whitespace-pre-wrap">
                   <Button
                     className="absolute right-1 top-auto m-1 hidden p-2 group-hover:block"
                     variant="outline"
@@ -62,7 +64,7 @@ export default function DataTable({
                         value
                           .map((i) =>
                             typeof i === "object"
-                              ? JSON.stringify(i)
+                              ? JSON.stringify(i, null, 2)
                               : String(i),
                           )
                           .join(", "),
@@ -72,15 +74,15 @@ export default function DataTable({
                   >
                     <Clipboard size={18} />
                   </Button>
-                  {value
-                    .map((i) => {
-                      const text =
-                        typeof i === "object" ? JSON.stringify(i) : String(i);
-                      return truncateLongData && text.length > maxChars
-                        ? text.slice(0, maxChars) + "..."
-                        : text;
-                    })
-                    .join(", ")}
+                  {value.map((item, index) => (
+                    <React.Fragment key={index}>
+                      <ContentRenderer
+                        value={item}
+                        truncateLongData={truncateLongData}
+                      />
+                      {index < value.length - 1 && ", "}
+                    </React.Fragment>
+                  ))}
                 </div>
               </TableCell>
             </TableRow>

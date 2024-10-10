@@ -43,7 +43,7 @@ class SendEmailBlock(Block):
 
     def __init__(self):
         super().__init__(
-            id="a1234567-89ab-cdef-0123-456789abcdef",
+            id="4335878a-394e-4e67-adf2-919877ff49ae",
             description="This block sends an email using the provided SMTP credentials.",
             categories={BlockCategory.OUTPUT},
             input_schema=SendEmailBlock.Input,
@@ -67,35 +67,28 @@ class SendEmailBlock(Block):
     def send_email(
         creds: EmailCredentials, to_email: str, subject: str, body: str
     ) -> str:
-        try:
-            smtp_server = creds.smtp_server
-            smtp_port = creds.smtp_port
-            smtp_username = creds.smtp_username.get_secret_value()
-            smtp_password = creds.smtp_password.get_secret_value()
+        smtp_server = creds.smtp_server
+        smtp_port = creds.smtp_port
+        smtp_username = creds.smtp_username.get_secret_value()
+        smtp_password = creds.smtp_password.get_secret_value()
 
-            msg = MIMEMultipart()
-            msg["From"] = smtp_username
-            msg["To"] = to_email
-            msg["Subject"] = subject
-            msg.attach(MIMEText(body, "plain"))
+        msg = MIMEMultipart()
+        msg["From"] = smtp_username
+        msg["To"] = to_email
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body, "plain"))
 
-            with smtplib.SMTP(smtp_server, smtp_port) as server:
-                server.starttls()
-                server.login(smtp_username, smtp_password)
-                server.sendmail(smtp_username, to_email, msg.as_string())
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.starttls()
+            server.login(smtp_username, smtp_password)
+            server.sendmail(smtp_username, to_email, msg.as_string())
 
-            return "Email sent successfully"
-        except Exception as e:
-            return f"Failed to send email: {str(e)}"
+        return "Email sent successfully"
 
     def run(self, input_data: Input, **kwargs) -> BlockOutput:
-        status = self.send_email(
+        yield "status", self.send_email(
             input_data.creds,
             input_data.to_email,
             input_data.subject,
             input_data.body,
         )
-        if "successfully" in status:
-            yield "status", status
-        else:
-            yield "error", status

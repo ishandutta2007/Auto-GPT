@@ -172,6 +172,7 @@ export function CustomNode({ data, id, width, height }: NodeProps<CustomNode>) {
                 <div key={propKey} onMouseOver={() => {}}>
                   {!isConnected && (
                     <NodeGenericInputField
+                      nodeId={id}
                       className="mb-2 mt-1"
                       propKey={propKey}
                       propSchema={propSchema}
@@ -231,6 +232,7 @@ export function CustomNode({ data, id, width, height }: NodeProps<CustomNode>) {
                 )}
                 {!isConnected && (
                   <NodeGenericInputField
+                    nodeId={id}
                     className="mb-2 mt-1"
                     propKey={propKey}
                     propSchema={propSchema}
@@ -270,6 +272,7 @@ export function CustomNode({ data, id, width, height }: NodeProps<CustomNode>) {
                 )}
                 {!isConnected && (
                   <NodeGenericInputField
+                    nodeId={id}
                     className="mb-2 mt-1"
                     propKey={propKey}
                     propSchema={propSchema}
@@ -540,7 +543,6 @@ export function CustomNode({ data, id, width, height }: NodeProps<CustomNode>) {
           value === inputValues[key] || (!value && !inputValues[key]),
       ),
     );
-  console.debug(`Block cost ${inputValues}|${data.blockCosts}=${blockCost}`);
 
   return (
     <div
@@ -586,7 +588,7 @@ export function CustomNode({ data, id, width, height }: NodeProps<CustomNode>) {
       {blockCost && (
         <div className="p-3 font-semibold">
           <span className="ml-auto flex items-center">
-            <IconCoin /> {blockCost.cost_amount} per {blockCost.cost_type}
+            <IconCoin /> {blockCost.cost_amount} credits/{blockCost.cost_type}
           </span>
         </div>
       )}

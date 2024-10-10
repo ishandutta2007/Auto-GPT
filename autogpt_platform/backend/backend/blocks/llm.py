@@ -1,7 +1,12 @@
+import ast
 import logging
-from enum import Enum
+from enum import Enum, EnumMeta
 from json import JSONDecodeError
-from typing import Any, List, NamedTuple
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any, List, NamedTuple
+
+if TYPE_CHECKING:
+    from enum import _EnumMemberT
 
 import anthropic
 import ollama
@@ -11,6 +16,7 @@ from groq import Groq
 from backend.data.block import Block, BlockCategory, BlockOutput, BlockSchema
 from backend.data.model import BlockSecret, SchemaField, SecretField
 from backend.util import json
+from backend.util.settings import BehaveAs, Settings
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +34,26 @@ class ModelMetadata(NamedTuple):
     cost_factor: int
 
 
-class LlmModel(str, Enum):
+class LlmModelMeta(EnumMeta):
+    @property
+    def __members__(
+        self: type["_EnumMemberT"],
+    ) -> MappingProxyType[str, "_EnumMemberT"]:
+        if Settings().config.behave_as == BehaveAs.LOCAL:
+            members = super().__members__
+            return members
+        else:
+            removed_providers = ["ollama"]
+            existing_members = super().__members__
+            members = {
+                name: member
+                for name, member in existing_members.items()
+                if LlmModel[name].provider not in removed_providers
+            }
+            return MappingProxyType(members)
+
+
+class LlmModel(str, Enum, metaclass=LlmModelMeta):
     # OpenAI models
     O1_PREVIEW = "o1-preview"
     O1_MINI = "o1-mini"
@@ -56,6 +81,18 @@ class LlmModel(str, Enum):
     @property
     def metadata(self) -> ModelMetadata:
         return MODEL_METADATA[self]
+
+    @property
+    def provider(self) -> str:
+        return self.metadata.provider
+
+    @property
+    def context_window(self) -> int:
+        return self.metadata.context_window
+
+    @property
+    def cost_factor(self) -> int:
+        return self.metadata.cost_factor
 
 
 MODEL_METADATA = {
@@ -92,7 +129,12 @@ class AIStructuredResponseGeneratorBlock(Block):
             description="Expected format of the response. If provided, the response will be validated against this format. "
             "The keys should be the expected fields in the response, and the values should be the description of the field.",
         )
-        model: LlmModel = LlmModel.GPT4_TURBO
+        model: LlmModel = SchemaField(
+            title="LLM Model",
+            default=LlmModel.GPT4_TURBO,
+            description="The language model to use for answering the prompt.",
+            advanced=False,
+        )
         api_key: BlockSecret = SecretField(value="")
         sys_prompt: str = ""
         retry: int = 3
@@ -204,6 +246,7 @@ class AIStructuredResponseGeneratorBlock(Block):
             raise ValueError(f"Unsupported LLM provider: {provider}")
 
     def run(self, input_data: Input, **kwargs) -> BlockOutput:
+        logger.debug(f"Calling LLM with input data: {input_data}")
         prompt = []
 
         def trim_prompt(s: str) -> str:
@@ -301,13 +344,18 @@ class AIStructuredResponseGeneratorBlock(Block):
                 logger.error(f"Error calling LLM: {e}")
                 retry_prompt = f"Error calling LLM: {e}"
 
-        yield "error", retry_prompt
+        raise RuntimeError(retry_prompt)
 
 
 class AITextGeneratorBlock(Block):
     class Input(BlockSchema):
         prompt: str
-        model: LlmModel = LlmModel.GPT4_TURBO
+        model: LlmModel = SchemaField(
+            title="LLM Model",
+            default=LlmModel.GPT4_TURBO,
+            description="The language model to use for answering the prompt.",
+            advanced=False,
+        )
         api_key: BlockSecret = SecretField(value="")
         sys_prompt: str = ""
         retry: int = 3
@@ -342,20 +390,30 @@ class AITextGeneratorBlock(Block):
         raise ValueError("Failed to get a response from the LLM.")
 
     def run(self, input_data: Input, **kwargs) -> BlockOutput:
-        try:
-            object_input_data = AIStructuredResponseGeneratorBlock.Input(
-                **{attr: getattr(input_data, attr) for attr in input_data.model_fields},
-                expected_format={},
-            )
-            yield "response", self.llm_call(object_input_data)
-        except Exception as e:
-            yield "error", str(e)
+        object_input_data = AIStructuredResponseGeneratorBlock.Input(
+            **{attr: getattr(input_data, attr) for attr in input_data.model_fields},
+            expected_format={},
+        )
+        yield "response", self.llm_call(object_input_data)
+
+
+class SummaryStyle(Enum):
+    CONCISE = "concise"
+    DETAILED = "detailed"
+    BULLET_POINTS = "bullet points"
+    NUMBERED_LIST = "numbered list"
 
 
 class AITextSummarizerBlock(Block):
     class Input(BlockSchema):
         text: str
-        model: LlmModel = LlmModel.GPT4_TURBO
+        model: LlmModel = SchemaField(
+            title="LLM Model",
+            default=LlmModel.GPT4_TURBO,
+            description="The language model to use for summarizing the text.",
+        )
+        focus: str = "general information"
+        style: SummaryStyle = SummaryStyle.CONCISE
         api_key: BlockSecret = SecretField(value="")
         # TODO: Make this dynamic
         max_tokens: int = 4000  # Adjust based on the model's context window
@@ -367,7 +425,7 @@ class AITextSummarizerBlock(Block):
 
     def __init__(self):
         super().__init__(
-            id="c3d4e5f6-7g8h-9i0j-1k2l-m3n4o5p6q7r8",
+            id="a0a69be1-4528-491c-a85a-a4ab6873e3f0",
             description="Utilize a Large Language Model (LLM) to summarize a long text.",
             categories={BlockCategory.AI, BlockCategory.TEXT},
             input_schema=AITextSummarizerBlock.Input,
@@ -384,11 +442,8 @@ class AITextSummarizerBlock(Block):
         )
 
     def run(self, input_data: Input, **kwargs) -> BlockOutput:
-        try:
-            for output in self._run(input_data):
-                yield output
-        except Exception as e:
-            yield "error", str(e)
+        for output in self._run(input_data):
+            yield output
 
     def _run(self, input_data: Input) -> BlockOutput:
         chunks = self._split_text(
@@ -426,7 +481,7 @@ class AITextSummarizerBlock(Block):
         raise ValueError("Failed to get a response from the LLM.")
 
     def _summarize_chunk(self, chunk: str, input_data: Input) -> str:
-        prompt = f"Summarize the following text concisely:\n\n{chunk}"
+        prompt = f"Summarize the following text in a {input_data.style} form. Focus your summary on the topic of `{input_data.focus}` if present, otherwise just provide a general summary:\n\n```{chunk}```"
 
         llm_response = self.llm_call(
             AIStructuredResponseGeneratorBlock.Input(
@@ -440,13 +495,10 @@ class AITextSummarizerBlock(Block):
         return llm_response["summary"]
 
     def _combine_summaries(self, summaries: list[str], input_data: Input) -> str:
-        combined_text = " ".join(summaries)
+        combined_text = "\n\n".join(summaries)
 
         if len(combined_text.split()) <= input_data.max_tokens:
-            prompt = (
-                "Provide a final, concise summary of the following summaries:\n\n"
-                + combined_text
-            )
+            prompt = f"Provide a final summary of the following section summaries in a {input_data.style} form, focus your summary on the topic of `{input_data.focus}` if present:\n\n ```{combined_text}```\n\n Just respond with the final_summary in the format specified."
 
             llm_response = self.llm_call(
                 AIStructuredResponseGeneratorBlock.Input(
@@ -492,6 +544,7 @@ class AIConversationBlock(Block):
             description="List of messages in the conversation.", min_length=1
         )
         model: LlmModel = SchemaField(
+            title="LLM Model",
             default=LlmModel.GPT4_TURBO,
             description="The language model to use for the conversation.",
         )
@@ -512,7 +565,7 @@ class AIConversationBlock(Block):
 
     def __init__(self):
         super().__init__(
-            id="c3d4e5f6-g7h8-i9j0-k1l2-m3n4o5p6q7r8",
+            id="32a87eab-381e-4dd4-bdb8-4c47151be35a",
             description="Advanced LLM call that takes a list of messages and sends them to the language model.",
             categories={BlockCategory.AI},
             input_schema=AIConversationBlock.Input,
@@ -583,21 +636,247 @@ class AIConversationBlock(Block):
             raise ValueError(f"Unsupported LLM provider: {provider}")
 
     def run(self, input_data: Input, **kwargs) -> BlockOutput:
+        api_key = (
+            input_data.api_key.get_secret_value()
+            or LlmApiKeys[input_data.model.metadata.provider].get_secret_value()
+        )
+
+        messages = [message.model_dump() for message in input_data.messages]
+
+        response = self.llm_call(
+            api_key=api_key,
+            model=input_data.model,
+            messages=messages,
+            max_tokens=input_data.max_tokens,
+        )
+
+        yield "response", response
+
+
+class AIListGeneratorBlock(Block):
+    class Input(BlockSchema):
+        focus: str | None = SchemaField(
+            description="The focus of the list to generate.",
+            placeholder="The top 5 most interesting news stories in the data.",
+            default=None,
+            advanced=False,
+        )
+        source_data: str | None = SchemaField(
+            description="The data to generate the list from.",
+            placeholder="News Today: Humans land on Mars: Today humans landed on mars. -- AI wins Nobel Prize: AI wins Nobel Prize for solving world hunger. -- New AI Model: A new AI model has been released.",
+            default=None,
+            advanced=False,
+        )
+        model: LlmModel = SchemaField(
+            title="LLM Model",
+            default=LlmModel.GPT4_TURBO,
+            description="The language model to use for generating the list.",
+            advanced=True,
+        )
+        api_key: BlockSecret = SecretField(value="")
+        max_retries: int = SchemaField(
+            default=3,
+            description="Maximum number of retries for generating a valid list.",
+            ge=1,
+            le=5,
+        )
+
+    class Output(BlockSchema):
+        generated_list: List[str] = SchemaField(description="The generated list.")
+        list_item: str = SchemaField(
+            description="Each individual item in the list.",
+        )
+        error: str = SchemaField(
+            description="Error message if the list generation failed."
+        )
+
+    def __init__(self):
+        super().__init__(
+            id="9c0b0450-d199-458b-a731-072189dd6593",
+            description="Generate a Python list based on the given prompt using a Large Language Model (LLM).",
+            categories={BlockCategory.AI, BlockCategory.TEXT},
+            input_schema=AIListGeneratorBlock.Input,
+            output_schema=AIListGeneratorBlock.Output,
+            test_input={
+                "focus": "planets",
+                "source_data": (
+                    "Zylora Prime is a glowing jungle world with bioluminescent plants, "
+                    "while Kharon-9 is a harsh desert planet with underground cities. "
+                    "Vortexia's constant storms power floating cities, and Oceara is a water-covered world home to "
+                    "intelligent marine life. On icy Draknos, ancient ruins lie buried beneath its frozen landscape, "
+                    "drawing explorers to uncover its mysteries. Each planet showcases the limitless possibilities of "
+                    "fictional worlds."
+                ),
+                "model": LlmModel.GPT4_TURBO,
+                "api_key": "test_api_key",
+                "max_retries": 3,
+            },
+            test_output=[
+                (
+                    "generated_list",
+                    ["Zylora Prime", "Kharon-9", "Vortexia", "Oceara", "Draknos"],
+                ),
+                ("list_item", "Zylora Prime"),
+                ("list_item", "Kharon-9"),
+                ("list_item", "Vortexia"),
+                ("list_item", "Oceara"),
+                ("list_item", "Draknos"),
+            ],
+            test_mock={
+                "llm_call": lambda input_data: {
+                    "response": "['Zylora Prime', 'Kharon-9', 'Vortexia', 'Oceara', 'Draknos']"
+                },
+            },
+        )
+
+    @staticmethod
+    def llm_call(
+        input_data: AIStructuredResponseGeneratorBlock.Input,
+    ) -> dict[str, str]:
+        llm_block = AIStructuredResponseGeneratorBlock()
+        for output_name, output_data in llm_block.run(input_data):
+            if output_name == "response":
+                logger.debug(f"Received response from LLM: {output_data}")
+                return output_data
+        raise ValueError("Failed to get a response from the LLM.")
+
+    @staticmethod
+    def string_to_list(string):
+        """
+        Converts a string representation of a list into an actual Python list object.
+        """
+        logger.debug(f"Converting string to list. Input string: {string}")
         try:
-            api_key = (
-                input_data.api_key.get_secret_value()
-                or LlmApiKeys[input_data.model.metadata.provider].get_secret_value()
-            )
+            # Use ast.literal_eval to safely evaluate the string
+            python_list = ast.literal_eval(string)
+            if isinstance(python_list, list):
+                logger.debug(f"Successfully converted string to list: {python_list}")
+                return python_list
+            else:
+                logger.error(f"The provided string '{string}' is not a valid list")
+                raise ValueError(f"The provided string '{string}' is not a valid list.")
+        except (SyntaxError, ValueError) as e:
+            logger.error(f"Failed to convert string to list: {e}")
+            raise ValueError("Invalid list format. Could not convert to list.")
 
-            messages = [message.model_dump() for message in input_data.messages]
+    def run(self, input_data: Input, **kwargs) -> BlockOutput:
+        logger.debug(f"Starting AIListGeneratorBlock.run with input data: {input_data}")
 
-            response = self.llm_call(
-                api_key=api_key,
-                model=input_data.model,
-                messages=messages,
-                max_tokens=input_data.max_tokens,
-            )
+        # Check for API key
+        api_key_check = (
+            input_data.api_key.get_secret_value()
+            or LlmApiKeys[input_data.model.metadata.provider].get_secret_value()
+        )
+        if not api_key_check:
+            raise ValueError("No LLM API key provided.")
 
-            yield "response", response
-        except Exception as e:
-            yield "error", f"Error calling LLM: {str(e)}"
+        # Prepare the system prompt
+        sys_prompt = """You are a Python list generator. Your task is to generate a Python list based on the user's prompt. 
+            |Respond ONLY with a valid python list. 
+            |The list can contain strings, numbers, or nested lists as appropriate. 
+            |Do not include any explanations or additional text.
+
+            |Valid Example string formats:
+
+            |Example 1:
+            |```
+            |['1', '2', '3', '4']
+            |```
+
+            |Example 2:
+            |```
+            |[['1', '2'], ['3', '4'], ['5', '6']]
+            |```
+
+            |Example 3:
+            |```
+            |['1', ['2', '3'], ['4', ['5', '6']]]
+            |```
+
+            |Example 4:
+            |```
+            |['a', 'b', 'c']
+            |```
+
+            |Example 5:
+            |```
+            |['1', '2.5', 'string', 'True', ['False', 'None']]
+            |```
+
+            |Do not include any explanations or additional text, just respond with the list in the format specified above.
+            """
+        # If a focus is provided, add it to the prompt
+        if input_data.focus:
+            prompt = f"Generate a list with the following focus:\n<focus>\n\n{input_data.focus}</focus>"
+        else:
+            # If there's source data
+            if input_data.source_data:
+                prompt = "Extract the main focus of the source data to a list.\ni.e if the source data is a news website, the focus would be the news stories rather than the social links in the footer."
+            else:
+                # No focus or source data provided, generat a random list
+                prompt = "Generate a random list."
+
+        # If the source data is provided, add it to the prompt
+        if input_data.source_data:
+            prompt += f"\n\nUse the following source data to generate the list from:\n\n<source_data>\n\n{input_data.source_data}</source_data>\n\nDo not invent fictional data that is not present in the source data."
+        # Else, tell the LLM to synthesize the data
+        else:
+            prompt += "\n\nInvent the data to generate the list from."
+
+        for attempt in range(input_data.max_retries):
+            try:
+                logger.debug("Calling LLM")
+                llm_response = self.llm_call(
+                    AIStructuredResponseGeneratorBlock.Input(
+                        sys_prompt=sys_prompt,
+                        prompt=prompt,
+                        api_key=input_data.api_key,
+                        model=input_data.model,
+                        expected_format={},  # Do not use structured response
+                    )
+                )
+
+                logger.debug(f"LLM response: {llm_response}")
+
+                # Extract Response string
+                response_string = llm_response["response"]
+                logger.debug(f"Response string: {response_string}")
+
+                # Convert the string to a Python list
+                logger.debug("Converting string to Python list")
+                parsed_list = self.string_to_list(response_string)
+                logger.debug(f"Parsed list: {parsed_list}")
+
+                # If we reach here, we have a valid Python list
+                logger.debug("Successfully generated a valid Python list")
+                yield "generated_list", parsed_list
+
+                # Yield each item in the list
+                for item in parsed_list:
+                    yield "list_item", item
+                return
+
+            except Exception as e:
+                logger.error(f"Error in attempt {attempt + 1}: {str(e)}")
+                if attempt == input_data.max_retries - 1:
+                    logger.error(
+                        f"Failed to generate a valid Python list after {input_data.max_retries} attempts"
+                    )
+                    raise RuntimeError(
+                        f"Failed to generate a valid Python list after {input_data.max_retries} attempts. Last error: {str(e)}"
+                    )
+                else:
+                    # Add a retry prompt
+                    logger.debug("Preparing retry prompt")
+                    prompt = f"""
+                    The previous attempt failed due to `{e}`
+                    Generate a valid Python list based on the original prompt.
+                    Remember to respond ONLY with a valid Python list as per the format specified earlier.
+                    Original prompt: 
+                    ```{prompt}```
+                    
+                    Respond only with the list in the format specified with no commentary or apologies.
+                    """
+                    logger.debug(f"Retry prompt: {prompt}")
+
+        logger.debug("AIListGeneratorBlock.run completed")

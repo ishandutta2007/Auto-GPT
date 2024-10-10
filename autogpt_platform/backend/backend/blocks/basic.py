@@ -4,13 +4,7 @@ from typing import Any, List
 from jinja2 import BaseLoader, Environment
 from pydantic import Field
 
-from backend.data.block import (
-    Block,
-    BlockCategory,
-    BlockOutput,
-    BlockSchema,
-    BlockUIType,
-)
+from backend.data.block import Block, BlockCategory, BlockOutput, BlockSchema, BlockType
 from backend.data.model import SchemaField
 from backend.util.mock import MockObject
 
@@ -41,8 +35,7 @@ class StoreValueBlock(Block):
     def __init__(self):
         super().__init__(
             id="1ff065e9-88e8-4358-9d82-8dc91f622ba9",
-            description="This block forwards the `input` pin to `output` pin. "
-            "This block output will be static, the output can be consumed many times.",
+            description="This block forwards an input value as output, allowing reuse without change.",
             categories={BlockCategory.BASIC},
             input_schema=StoreValueBlock.Input,
             output_schema=StoreValueBlock.Output,
@@ -95,7 +88,7 @@ class FindInDictionaryBlock(Block):
 
     def __init__(self):
         super().__init__(
-            id="b2g2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6",
+            id="0e50422c-6dee-4145-83d6-3a5a392f65de",
             description="Lookup the given key in the input dictionary/object/list and return the value.",
             input_schema=FindInDictionaryBlock.Input,
             output_schema=FindInDictionaryBlock.Output,
@@ -197,7 +190,7 @@ class AgentInputBlock(Block):
                 ("result", "Hello, World!"),
             ],
             categories={BlockCategory.INPUT, BlockCategory.BASIC},
-            ui_type=BlockUIType.INPUT,
+            block_type=BlockType.INPUT,
         )
 
     def run(self, input_data: Input, **kwargs) -> BlockOutput:
@@ -244,14 +237,7 @@ class AgentOutputBlock(Block):
     def __init__(self):
         super().__init__(
             id="363ae599-353e-4804-937e-b2ee3cef3da4",
-            description=(
-                "This block records the graph output. It takes a value to record, "
-                "with a name, description, and optional format string. If a format "
-                "string is given, it tries to format the recorded value. The "
-                "formatted (or raw, if formatting fails) value is then output. "
-                "This block is key for capturing and presenting final results or "
-                "important intermediate outputs of the graph execution."
-            ),
+            description=("Stores the output of the graph for users to see."),
             input_schema=AgentOutputBlock.Input,
             output_schema=AgentOutputBlock.Output,
             test_input=[
@@ -280,7 +266,7 @@ class AgentOutputBlock(Block):
                 ("output", MockObject(value="!!", key="key")),
             ],
             categories={BlockCategory.OUTPUT, BlockCategory.BASIC},
-            ui_type=BlockUIType.OUTPUT,
+            block_type=BlockType.OUTPUT,
         )
 
     def run(self, input_data: Input, **kwargs) -> BlockOutput:
@@ -344,20 +330,17 @@ class AddToDictionaryBlock(Block):
         )
 
     def run(self, input_data: Input, **kwargs) -> BlockOutput:
-        try:
-            # If no dictionary is provided, create a new one
-            if input_data.dictionary is None:
-                updated_dict = {}
-            else:
-                # Create a copy of the input dictionary to avoid modifying the original
-                updated_dict = input_data.dictionary.copy()
+        # If no dictionary is provided, create a new one
+        if input_data.dictionary is None:
+            updated_dict = {}
+        else:
+            # Create a copy of the input dictionary to avoid modifying the original
+            updated_dict = input_data.dictionary.copy()
 
-            # Add the new key-value pair
-            updated_dict[input_data.key] = input_data.value
+        # Add the new key-value pair
+        updated_dict[input_data.key] = input_data.value
 
-            yield "updated_dictionary", updated_dict
-        except Exception as e:
-            yield "error", f"Failed to add entry to dictionary: {str(e)}"
+        yield "updated_dictionary", updated_dict
 
 
 class AddToListBlock(Block):
@@ -415,23 +398,20 @@ class AddToListBlock(Block):
         )
 
     def run(self, input_data: Input, **kwargs) -> BlockOutput:
-        try:
-            # If no list is provided, create a new one
-            if input_data.list is None:
-                updated_list = []
-            else:
-                # Create a copy of the input list to avoid modifying the original
-                updated_list = input_data.list.copy()
+        # If no list is provided, create a new one
+        if input_data.list is None:
+            updated_list = []
+        else:
+            # Create a copy of the input list to avoid modifying the original
+            updated_list = input_data.list.copy()
 
-            # Add the new entry
-            if input_data.position is None:
-                updated_list.append(input_data.entry)
-            else:
-                updated_list.insert(input_data.position, input_data.entry)
+        # Add the new entry
+        if input_data.position is None:
+            updated_list.append(input_data.entry)
+        else:
+            updated_list.insert(input_data.position, input_data.entry)
 
-            yield "updated_list", updated_list
-        except Exception as e:
-            yield "error", f"Failed to add entry to list: {str(e)}"
+        yield "updated_list", updated_list
 
 
 class NoteBlock(Block):
@@ -443,7 +423,7 @@ class NoteBlock(Block):
 
     def __init__(self):
         super().__init__(
-            id="31d1064e-7446-4693-o7d4-65e5ca9110d1",
+            id="cc10ff7b-7753-4ff2-9af6-9399b1a7eddc",
             description="This block is used to display a sticky note with the given text.",
             categories={BlockCategory.BASIC},
             input_schema=NoteBlock.Input,
@@ -452,7 +432,7 @@ class NoteBlock(Block):
             test_output=[
                 ("output", "Hello, World!"),
             ],
-            ui_type=BlockUIType.NOTE,
+            block_type=BlockType.NOTE,
         )
 
     def run(self, input_data: Input, **kwargs) -> BlockOutput:

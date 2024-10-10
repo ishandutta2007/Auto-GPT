@@ -4,7 +4,7 @@ from urllib.parse import quote
 import requests
 
 from backend.data.block import Block, BlockCategory, BlockOutput, BlockSchema
-from backend.data.model import BlockSecret, SecretField
+from backend.data.model import BlockSecret, SchemaField, SecretField
 
 
 class GetRequest:
@@ -25,7 +25,7 @@ class GetWikipediaSummaryBlock(Block, GetRequest):
 
     def __init__(self):
         super().__init__(
-            id="h5e7f8g9-1b2c-3d4e-5f6g-7h8i9j0k1l2m",
+            id="f5b0f5d0-1862-4d61-94be-3ad0fa772760",
             description="This block fetches the summary of a given topic from Wikipedia.",
             categories={BlockCategory.SEARCH},
             input_schema=GetWikipediaSummaryBlock.Input,
@@ -36,20 +36,12 @@ class GetWikipediaSummaryBlock(Block, GetRequest):
         )
 
     def run(self, input_data: Input, **kwargs) -> BlockOutput:
-        try:
-            topic = input_data.topic
-            url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{topic}"
-            response = self.get_request(url, json=True)
-            yield "summary", response["extract"]
-
-        except requests.exceptions.HTTPError as http_err:
-            yield "error", f"HTTP error occurred: {http_err}"
-
-        except requests.RequestException as e:
-            yield "error", f"Request to Wikipedia failed: {e}"
-
-        except KeyError as e:
-            yield "error", f"Error parsing Wikipedia response: {e}"
+        topic = input_data.topic
+        url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{topic}"
+        response = self.get_request(url, json=True)
+        if "extract" not in response:
+            raise RuntimeError(f"Unable to parse Wikipedia response: {response}")
+        yield "summary", response["extract"]
 
 
 class SearchTheWebBlock(Block, GetRequest):
@@ -62,7 +54,7 @@ class SearchTheWebBlock(Block, GetRequest):
 
     def __init__(self):
         super().__init__(
-            id="b2c3d4e5-6f7g-8h9i-0j1k-l2m3n4o5p6q7",
+            id="87840993-2053-44b7-8da4-187ad4ee518c",
             description="This block searches the internet for the given search query.",
             categories={BlockCategory.SEARCH},
             input_schema=SearchTheWebBlock.Input,
@@ -73,29 +65,28 @@ class SearchTheWebBlock(Block, GetRequest):
         )
 
     def run(self, input_data: Input, **kwargs) -> BlockOutput:
-        try:
-            # Encode the search query
-            encoded_query = quote(input_data.query)
+        # Encode the search query
+        encoded_query = quote(input_data.query)
 
-            # Prepend the Jina Search URL to the encoded query
-            jina_search_url = f"https://s.jina.ai/{encoded_query}"
+        # Prepend the Jina Search URL to the encoded query
+        jina_search_url = f"https://s.jina.ai/{encoded_query}"
 
-            # Make the request to Jina Search
-            response = self.get_request(jina_search_url, json=False)
+        # Make the request to Jina Search
+        response = self.get_request(jina_search_url, json=False)
 
-            # Output the search results
-            yield "results", response
-
-        except requests.exceptions.HTTPError as http_err:
-            yield "error", f"HTTP error occurred: {http_err}"
-
-        except requests.RequestException as e:
-            yield "error", f"Request to Jina Search failed: {e}"
+        # Output the search results
+        yield "results", response
 
 
 class ExtractWebsiteContentBlock(Block, GetRequest):
     class Input(BlockSchema):
         url: str  # The URL to scrape
+        raw_content: bool = SchemaField(
+            default=False,
+            title="Raw Content",
+            description="Whether to do a raw scrape of the content or use Jina-ai Reader to scrape the content",
+            advanced=True,
+        )
 
     class Output(BlockSchema):
         content: str  # The scraped content from the URL
@@ -103,7 +94,7 @@ class ExtractWebsiteContentBlock(Block, GetRequest):
 
     def __init__(self):
         super().__init__(
-            id="a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6",  # Unique ID for the block
+            id="436c3984-57fd-4b85-8e9a-459b356883bd",
             description="This block scrapes the content from the given web URL.",
             categories={BlockCategory.SEARCH},
             input_schema=ExtractWebsiteContentBlock.Input,
@@ -114,21 +105,13 @@ class ExtractWebsiteContentBlock(Block, GetRequest):
         )
 
     def run(self, input_data: Input, **kwargs) -> BlockOutput:
-        try:
-            # Prepend the Jina-ai Reader URL to the input URL
-            jina_url = f"https://r.jina.ai/{input_data.url}"
+        if input_data.raw_content:
+            url = input_data.url
+        else:
+            url = f"https://r.jina.ai/{input_data.url}"
 
-            # Make the request to Jina-ai Reader
-            response = self.get_request(jina_url, json=False)
-
-            # Output the scraped content
-            yield "content", response
-
-        except requests.exceptions.HTTPError as http_err:
-            yield "error", f"HTTP error occurred: {http_err}"
-
-        except requests.RequestException as e:
-            yield "error", f"Request to Jina-ai Reader failed: {e}"
+        content = self.get_request(url, json=False)
+        yield "content", content
 
 
 class GetWeatherInformationBlock(Block, GetRequest):
@@ -148,6 +131,7 @@ class GetWeatherInformationBlock(Block, GetRequest):
             id="f7a8b2c3-6d4e-5f8b-9e7f-6d4e5f8b9e7f",
             input_schema=GetWeatherInformationBlock.Input,
             output_schema=GetWeatherInformationBlock.Output,
+            description="Retrieves weather information for a specified location using OpenWeatherMap API.",
             test_input={
                 "location": "New York",
                 "api_key": "YOUR_API_KEY",
@@ -167,26 +151,15 @@ class GetWeatherInformationBlock(Block, GetRequest):
         )
 
     def run(self, input_data: Input, **kwargs) -> BlockOutput:
-        try:
-            units = "metric" if input_data.use_celsius else "imperial"
-            api_key = input_data.api_key.get_secret_value()
-            location = input_data.location
-            url = f"http://api.openweathermap.org/data/2.5/weather?q={quote(location)}&appid={api_key}&units={units}"
-            weather_data = self.get_request(url, json=True)
+        units = "metric" if input_data.use_celsius else "imperial"
+        api_key = input_data.api_key.get_secret_value()
+        location = input_data.location
+        url = f"http://api.openweathermap.org/data/2.5/weather?q={quote(location)}&appid={api_key}&units={units}"
+        weather_data = self.get_request(url, json=True)
 
-            if "main" in weather_data and "weather" in weather_data:
-                yield "temperature", str(weather_data["main"]["temp"])
-                yield "humidity", str(weather_data["main"]["humidity"])
-                yield "condition", weather_data["weather"][0]["description"]
-            else:
-                yield "error", f"Expected keys not found in response: {weather_data}"
-
-        except requests.exceptions.HTTPError as http_err:
-            if http_err.response.status_code == 403:
-                yield "error", "Request to weather API failed: 403 Forbidden. Check your API key and permissions."
-            else:
-                yield "error", f"HTTP error occurred: {http_err}"
-        except requests.RequestException as e:
-            yield "error", f"Request to weather API failed: {e}"
-        except KeyError as e:
-            yield "error", f"Error processing weather data: {e}"
+        if "main" in weather_data and "weather" in weather_data:
+            yield "temperature", str(weather_data["main"]["temp"])
+            yield "humidity", str(weather_data["main"]["humidity"])
+            yield "condition", weather_data["weather"][0]["description"]
+        else:
+            raise RuntimeError(f"Expected keys not found in response: {weather_data}")

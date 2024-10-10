@@ -2,9 +2,11 @@
 import React, { useEffect, useState } from "react";
 import { Button } from "./ui/button";
 import { IconMegaphone } from "@/components/ui/icons";
+import { useRouter } from "next/navigation";
 
 const TallyPopupSimple = () => {
   const [isFormVisible, setIsFormVisible] = useState(false);
+  const router = useRouter();
 
   useEffect(() => {
     // Load Tally script
@@ -42,12 +44,11 @@ const TallyPopupSimple = () => {
   }
 
   const resetTutorial = () => {
-    const url = `${window.location.origin}/build?resetTutorial=true`;
-    window.location.href = url;
+    router.push("/build?resetTutorial=true");
   };
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex items-center gap-4 p-3 transition-all duration-300 ease-in-out">
+    <div className="fixed bottom-6 right-6 z-50 hidden items-center gap-4 p-3 transition-all duration-300 ease-in-out md:flex">
       <Button variant="default" onClick={resetTutorial} className="mb-0">
         Tutorial
       </Button>

@@ -34,21 +34,16 @@ import ConnectionLine from "./ConnectionLine";
 import { Control, ControlPanel } from "@/components/edit/control/ControlPanel";
 import { SaveControl } from "@/components/edit/control/SaveControl";
 import { BlocksControl } from "@/components/edit/control/BlocksControl";
-import {
-  IconPlay,
-  IconUndo2,
-  IconRedo2,
-  IconSquare,
-} from "@/components/ui/icons";
+import { IconUndo2, IconRedo2 } from "@/components/ui/icons";
 import { startTutorial } from "./tutorial";
 import useAgentGraph from "@/hooks/useAgentGraph";
 import { v4 as uuidv4 } from "uuid";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
-import { LogOut } from "lucide-react";
 import RunnerUIWrapper, {
   RunnerUIWrapperRef,
 } from "@/components/RunnerUIWrapper";
 import PrimaryActionBar from "@/components/PrimaryActionButton";
+import { useToast } from "@/components/ui/use-toast";
 
 // This is for the history, this is the minimum distance a block must move before it is logged
 // It helps to prevent spamming the history with small movements especially when pressing on a input in a block
@@ -96,39 +91,32 @@ const FlowEditor: React.FC<{
 
   const router = useRouter();
   const pathname = usePathname();
+  const params = useSearchParams();
   const initialPositionRef = useRef<{
     [key: string]: { x: number; y: number };
   }>({});
   const isDragging = useRef(false);
 
-  // State to control if tutorial has started
-  const [tutorialStarted, setTutorialStarted] = useState(false);
   // State to control if blocks menu should be pinned open
   const [pinBlocksPopover, setPinBlocksPopover] = useState(false);
+  // State to control if save popover should be pinned open
+  const [pinSavePopover, setPinSavePopover] = useState(false);
 
   const runnerUIRef = useRef<RunnerUIWrapperRef>(null);
 
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
+  const { toast } = useToast();
 
-    // If resetting tutorial
+  const TUTORIAL_STORAGE_KEY = "shepherd-tour";
+
+  useEffect(() => {
     if (params.get("resetTutorial") === "true") {
-      localStorage.removeItem("shepherd-tour"); // Clear tutorial flag
+      localStorage.removeItem(TUTORIAL_STORAGE_KEY);
       router.push(pathname);
-    } else {
-      // Otherwise, start tutorial if conditions are met
-      const shouldStartTutorial = !localStorage.getItem("shepherd-tour");
-      if (
-        shouldStartTutorial &&
-        availableNodes.length > 0 &&
-        !tutorialStarted
-      ) {
-        startTutorial(setPinBlocksPopover);
-        setTutorialStarted(true);
-        localStorage.setItem("shepherd-tour", "yes");
-      }
+    } else if (!localStorage.getItem(TUTORIAL_STORAGE_KEY)) {
+      startTutorial(setPinBlocksPopover, setPinSavePopover);
+      localStorage.setItem(TUTORIAL_STORAGE_KEY, "yes");
     }
-  }, [availableNodes, tutorialStarted, router, pathname]);
+  }, [availableNodes, router, pathname, params]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -582,28 +570,36 @@ const FlowEditor: React.FC<{
         >
           <Controls />
           <Background />
-          <ControlPanel className="absolute z-10" controls={editorControls}>
-            <BlocksControl
-              pinBlocksPopover={pinBlocksPopover} // Pass the state to BlocksControl
-              blocks={availableNodes}
-              addBlock={addNode}
-            />
-            <SaveControl
-              agentMeta={savedAgent}
-              onSave={(isTemplate) => requestSave(isTemplate ?? false)}
-              agentDescription={agentDescription}
-              onDescriptionChange={setAgentDescription}
-              agentName={agentName}
-              onNameChange={setAgentName}
-            />
-          </ControlPanel>
+          <ControlPanel
+            className="absolute z-10"
+            controls={editorControls}
+            topChildren={
+              <BlocksControl
+                pinBlocksPopover={pinBlocksPopover} // Pass the state to BlocksControl
+                blocks={availableNodes}
+                addBlock={addNode}
+              />
+            }
+            botChildren={
+              <SaveControl
+                agentMeta={savedAgent}
+                onSave={(isTemplate) => requestSave(isTemplate ?? false)}
+                agentDescription={agentDescription}
+                onDescriptionChange={setAgentDescription}
+                agentName={agentName}
+                onNameChange={setAgentName}
+                pinSavePopover={pinSavePopover}
+              />
+            }
+          ></ControlPanel>
           <PrimaryActionBar
             onClickAgentOutputs={() => runnerUIRef.current?.openRunnerOutput()}
             onClickRunAgent={() => {
               if (!savedAgent) {
-                alert(
-                  "Please save the agent to run, by clicking the save button in the left sidebar.",
-                );
+                toast({
+                  title: `Please save the agent using the button in the left sidebar before running it.`,
+                  duration: 2000,
+                });
                 return;
               }
               if (!isRunning) {
@@ -612,15 +608,10 @@ const FlowEditor: React.FC<{
                 requestStopRun();
               }
             }}
+            isDisabled={!savedAgent}
             isRunning={isRunning}
             requestStopRun={requestStopRun}
-            runAgentTooltip={
-              !savedAgent
-                ? "Please save the agent to run"
-                : !isRunning
-                  ? "Run Agent"
-                  : "Stop Agent"
-            }
+            runAgentTooltip={!isRunning ? "Run Agent" : "Stop Agent"}
           />
         </ReactFlow>
       </div>
